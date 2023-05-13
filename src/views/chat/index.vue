@@ -15,8 +15,12 @@ import { useBasicLayout } from '@/hooks/useBasicLayout'
 import { useChatStore, usePromptStore } from '@/store'
 import { fetchChatAPIProcess } from '@/api'
 import { t } from '@/locales'
+import '../../../node_modules/eventsource/example/eventsource-polyfill.js'
+
 
 let controller = new AbortController()
+let VITE_APP_API_BASE_URL = import.meta.env.VITE_APP_API_BASE_URL
+
 
 const openLongReply = import.meta.env.VITE_GLOB_OPEN_LONG_REPLY === 'true'
 
@@ -32,6 +36,7 @@ const { scrollRef, scrollToBottom, scrollToBottomIfAtBottom } = useScroll()
 const { usingContext, toggleUsingContext } = useUsingContext()
 
 const { uuid } = route.params as { uuid: string }
+
 
 const dataSources = computed(() => chatStore.getChatByUuid(+uuid))
 const conversationList = computed(() => dataSources.value.filter(item => (!item.inversion && !!item.conversationOptions)))
@@ -53,7 +58,66 @@ dataSources.value.forEach((item, index) => {
 })
 
 function handleSubmit() {
+    // 创建sse
+  createEventSource();
   onConversation()
+}
+
+const createEventSource = () => {
+  // 判断是否支持eventsource
+  if (window.EventSource) {
+    // 创建链接
+    let state = new EventSourcePolyfill(`${VITE_APP_API_BASE_URL}/api/sse/create`, {
+      headers: {
+        'uid': uuid,
+      }
+    });
+
+    console.log(state,'state');
+    // 接受信息
+    let text = ''
+    state.onmessage = (event) => {
+
+      if (event.lastEventId == "[TOKENS]") {
+        // text = text + event.data;
+        // setText(text)
+        text = ''
+        return;
+      }
+      if (event.data == "[DONE]") {
+        console.log();
+
+        if (state) {
+          state.close();
+        }
+        return;
+      }
+      let json_data = JSON.parse(event.data)
+      if (json_data.content == null || json_data.content == 'null') {
+        return;
+      }
+      text = text + json_data.content;
+      setText(text)
+    };
+    // 报错处理
+    // state.onerror = (e) => {
+    //   console.log(e);
+    //   // state.close();
+    // }
+  } else {
+    console.log("你的浏览器不支持SSE");
+  }
+
+}
+
+function setText(text) {
+  let content = document.getElementById("test")
+  console.log(content, 'text')
+  content.innerHTML = text;
+  // 组装聊天数据
+  
+
+
 }
 
 async function onConversation() {
@@ -107,6 +171,7 @@ async function onConversation() {
     let lastText = ''
     const fetchChatAPIOnce = async () => {
       await fetchChatAPIProcess<Chat.ConversationResponse>({
+        uuid,
         prompt: message,
         options,
         signal: controller.signal,
@@ -241,6 +306,7 @@ async function onRegenerate(index: number) {
         prompt: message,
         options,
         signal: controller.signal,
+        uuid:uuid,
         onDownloadProgress: ({ event }) => {
           const xhr = event.target
           const { responseText } = xhr
@@ -455,6 +521,9 @@ onMounted(() => {
   scrollToBottom()
   if (inputRef.value && !isMobile.value)
     inputRef.value?.focus()
+
+    // 创建sse
+  // createEventSource();
 })
 
 onUnmounted(() => {
@@ -465,6 +534,7 @@ onUnmounted(() => {
 
 <template>
   <div class="flex flex-col w-full h-full">
+    <div id="test"></div>
     <HeaderComponent
       v-if="isMobile"
       :using-context="usingContext"
