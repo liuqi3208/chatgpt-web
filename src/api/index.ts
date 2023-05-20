@@ -2,8 +2,6 @@ import type { AxiosProgressEvent, GenericAbortSignal } from 'axios'
 import { post } from '@/utils/request'
 import { useAuthStore, useSettingStore } from '@/store'
 import { getLocalState } from '@/store/modules/user/helper'
-import { log } from 'console';
-
 
 export function fetchChatAPI<T = any>(
   prompt: string,
@@ -25,7 +23,7 @@ export function fetchChatConfig<T = any>() {
 
 export function fetchChatAPIProcess<T = any>(
   params: {
-    uuid:string
+    uuid: string
     prompt: string
     options?: { conversationId?: string; parentMessageId?: string }
     signal?: GenericAbortSignal
@@ -34,17 +32,17 @@ export function fetchChatAPIProcess<T = any>(
   const settingStore = useSettingStore()
   const authStore = useAuthStore()
 
-  const apiKey = getLocalState().userInfo.description;
+  const apiKey = getLocalState().userInfo.description
 
   let data: Record<string, any> = {
     prompt: params.prompt,
     options: params.options,
     message: [{
       content: params.prompt,
-      role: "user"
+      role: 'user',
     }],
     api_key: apiKey,
-    model: 'gpt-3.5-turbo'
+    model: 'gpt-3.5-turbo',
   }
   if (authStore.isChatGPTAPI) {
     data = {
@@ -55,7 +53,7 @@ export function fetchChatAPIProcess<T = any>(
     }
   }
   return post<T>({
-    url: `/api/sse/chat`,
+    url: '/api/sse/chat',
     data,
     signal: params.signal,
     headers: { uid: params.uuid },

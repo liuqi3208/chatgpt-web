@@ -23,8 +23,10 @@
     "common:prepare": "husky install"
   },
   "dependencies": {
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@traptitech/markdown-it-katex": "^3.6.0",
     "@vueuse/core": "^9.13.0",
+    "dompurify": "^3.0.3",
     "event-source-polyfill": "^1.0.31",
     "eventsource": "^2.0.2",
     "highlight.js": "^11.7.0",

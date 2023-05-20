@@ -23,7 +23,7 @@ const { isMobile } = useBasicLayout()
 const textRef = ref<HTMLElement>()
 
 const mdi = new MarkdownIt({
-  html: false,
+  html: true,
   linkify: true,
   highlight(code, language) {
     const validLang = !!(language && hljs.getLanguage(language))
@@ -33,6 +33,37 @@ const mdi = new MarkdownIt({
     }
     return highlightBlock(hljs.highlightAuto(code).value, '')
   },
+})
+
+console.log(mdi, 'mdi')
+mdi.block.ruler.before('paragraph', 'my_tule', (state, startLine) => {
+  let ch; let level; let tmp; let token
+  const pos = state.bMarks[startLine] + state.tShift[startLine]
+  const max = state.eMarks[startLine]
+  ch = state.src.charCodeAt(pos)
+  if (ch !== 0x40/* @ */ || pos >= max)
+    return false
+
+  const text = state.src.substring(pos, max)
+  const rg = /^@\s(.*)/
+  const match = text.match(rg)
+
+  if (match && match.length) {
+    const result = match[1]
+    token = state.push('heading_open', 'h1', 1)
+    token.markup = '@'
+    token.map = [startLine, state.line]
+
+    token = state.push('inline', '', 0)
+    token.content = result
+    token.map = [startLine, state.line]
+    token.children = []
+
+    token = state.push('heading_close', 'h1', -1)
+    token.markup = '@'
+    state.line = startLine + 1
+    return true
+  }
 })
 
 mdi.use(mila, { attrs: { target: '_blank', rel: 'noopener' } })
@@ -59,7 +90,13 @@ const text = computed(() => {
 })
 
 function highlightBlock(str: string, lang?: string) {
-  return `<pre class="code-block-wrapper"><div class="code-block-header"><span class="code-block-header__lang">${lang}</span><span class="code-block-header__copy">${t('chat.copyCode')}</span></div><code class="hljs code-block-body ${lang}">${str}</code></pre>`
+  return `<pre class="code-block-wrapper">
+            <div class="code-block-header">
+              <span class="code-block-header__lang">${lang}</span>
+              <span class="code-block-header__copy">${t('chat.copyCode')}</span>
+            </div>
+            <code class="hljs code-block-body ${lang}">${str}</code>
+          </pre>`
 }
 
 function addCopyEvents() {
@@ -85,7 +122,7 @@ function removeCopyEvents() {
   if (textRef.value) {
     const copyBtn = textRef.value.querySelectorAll('.code-block-header__copy')
     copyBtn.forEach((btn) => {
-      btn.removeEventListener('click', () => {})
+      btn.removeEventListener('click', () => { })
     })
   }
 }
@@ -111,9 +148,9 @@ onUnmounted(() => {
         <div v-else class="whitespace-pre-wrap" v-text="text" />
       </div>
       <div v-else class="whitespace-pre-wrap" v-text="text" />
-      <template v-if="loading">
+      <!-- <template v-if="loading">
         <span class="dark:text-white w-[4px] h-[20px] block animate-blink" />
-      </template>
+      </template> -->
     </div>
   </div>
 </template>

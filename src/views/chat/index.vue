@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { NAutoComplete, NButton, NInput, useDialog, useMessage } from 'naive-ui'
 import html2canvas from 'html2canvas'
+import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { Message } from './components'
 import { useScroll } from './hooks/useScroll'
 import { useChat } from './hooks/useChat'
@@ -15,14 +16,12 @@ import { useBasicLayout } from '@/hooks/useBasicLayout'
 import { useChatStore, usePromptStore } from '@/store'
 import { fetchChatAPIProcess } from '@/api'
 import { t } from '@/locales'
-import '../../../node_modules/eventsource/example/eventsource-polyfill.js'
-
+// import '../../../node_modules/eventsource/example/eventsource-polyfill.js'
 
 let controller = new AbortController()
-let VITE_APP_API_BASE_URL = import.meta.env.VITE_APP_API_BASE_URL
+const VITE_APP_API_BASE_URL = import.meta.env.VITE_APP_API_BASE_URL
 
-
-const openLongReply = import.meta.env.VITE_GLOB_OPEN_LONG_REPLY === 'true'
+// const openLongReply = import.meta.env.VITE_GLOB_OPEN_LONG_REPLY === 'true'
 
 const route = useRoute()
 const dialog = useDialog()
@@ -37,13 +36,13 @@ const { usingContext, toggleUsingContext } = useUsingContext()
 
 const { uuid } = route.params as { uuid: string }
 
-
 const dataSources = computed(() => chatStore.getChatByUuid(+uuid))
 const conversationList = computed(() => dataSources.value.filter(item => (!item.inversion && !!item.conversationOptions)))
 
 const prompt = ref<string>('')
 const loading = ref<boolean>(false)
 const inputRef = ref<Ref | null>(null)
+let currentMsg = ''
 
 // 添加PromptStore
 const promptStore = usePromptStore()
@@ -58,71 +57,172 @@ dataSources.value.forEach((item, index) => {
 })
 
 function handleSubmit() {
-    // 创建sse
-  createEventSource();
   onConversation()
 }
 
-const createEventSource = () => {
-  // 判断是否支持eventsource
-  if (window.EventSource) {
-    // 创建链接
-    let state = new EventSourcePolyfill(`${VITE_APP_API_BASE_URL}/api/sse/create`, {
-      headers: {
-        'uid': uuid,
-      }
-    });
+const sendSource = (sendData: any) => {
+  currentMsg = ''
+  fetchEventSource(`${VITE_APP_API_BASE_URL}/api/chat/sse`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      message: sendData.message,
+    }),
+    signal: sendData.signal,
+    async onopen(response) {
+      // console.log(response)
+    },
+    onmessage(msg) {
+      if (msg.event === 'FatalError')
+        throw new Error(msg.data)
 
-    console.log(state,'state');
-    // 接受信息
-    let text = ''
-    state.onmessage = (event) => {
-
-      if (event.lastEventId == "[TOKENS]") {
-        // text = text + event.data;
-        // setText(text)
-        text = ''
-        return;
+      if (msg.id === '[TOKENS]') {
+        // currentMsg = ''
+        return
       }
-      if (event.data == "[DONE]") {
-        console.log();
 
-        if (state) {
-          state.close();
-        }
-        return;
+      if (msg.id === '[DONE]') {
+        updateChatSome(+uuid, dataSources.value.length - 1, { loading: false })
+        // console.log('[DONE]')
+        return
       }
-      let json_data = JSON.parse(event.data)
-      if (json_data.content == null || json_data.content == 'null') {
-        return;
-      }
-      text = text + json_data.content;
-      setText(text)
-    };
-    // 报错处理
-    // state.onerror = (e) => {
-    //   console.log(e);
-    //   // state.close();
-    // }
-  } else {
-    console.log("你的浏览器不支持SSE");
-  }
 
+      const json_data = JSON.parse(msg.data)
+      // console.log(msg)
+      const lastIndex = -1
+      // eslint-disable-next-line no-unused-expressions
+      json_data.content ? json_data.content.lastIndexOf('\n', json_data.content.length - 2) : ''
+      if (lastIndex !== -1)
+        json_data.content.substring(lastIndex)
+
+      if (json_data.content == null || json_data.content === 'null')
+        return
+
+      currentMsg = `${currentMsg + json_data.content}`
+      const message = ''
+      const options = {}
+
+      updateChat(
+        +uuid,
+        dataSources.value.length - 1,
+        {
+          dateTime: new Date().toLocaleString(),
+          text: `${currentMsg}<span class="dark:text-white w-[4px] h-[20px] inline-block animate-blink" />`,
+          // text:currentMsg,
+          inversion: false,
+          error: false,
+          loading: true,
+          conversationOptions: null,
+          requestOptions: { prompt: message, options: { ...options } },
+        },
+      )
+      scrollToBottomIfAtBottom()
+    },
+    onerror(e) {
+      console.log(e)
+    },
+    onclose() {
+
+    },
+
+  })
 }
 
-function setText(text) {
-  let content = document.getElementById("test")
-  console.log(content, 'text')
-  content.innerHTML = text;
-  // 组装聊天数据
-  
+// const sendSource1 = () => {
+//   // 判断是否支持eventsource
+//   if (window.EventSource) {
+//     // 创建链接
+//     currentMsg = ''
+//     // let state = new EventSourcePolyfill(`${VITE_APP_API_BASE_URL}/api/sse/create`, {
+//     //   headers: {
+//     //     'uid': uuid,
+//     //   }
+//     // });
+//     const state = new EventSourcePolyfill(`${VITE_APP_API_BASE_URL}/api/chat/sse`, {
+//       headers: {
+//         uid: uuid,
+//       },
 
+//     })
+//     // console.log(state,'statestate');
 
-}
+//     // 与服务器连接成功的回调
+//     state.onopen = (event: any) => {
+//       console.log(state.readyState, 'enevt')
+
+//       // 1、sse通道未建立
+//       if (state.readyState == 0)
+//         console.log('sse通道未建立')
+
+//       // 2、sse通道连接成功
+//       if (state.readyState == 1) {
+//         console.log('sse通道连接成功')
+//         onConversation()
+//       }
+//       // 3、sse通道断开连接
+//       if (state.readyState == 2)
+//         console.log('sse通道断开连接')
+//     }
+
+//     // 接受信息
+//     // let text = ''
+//     state.onmessage = (event: any) => {
+//       if (event.lastEventId == '[TOKENS]') {
+//         // text = text + event.data;
+//         // setText(text)
+//         // text = ''
+//         // currentMsg = ''
+//         return
+//       }
+//       if (event.data == '[DONE]') {
+//         if (state) {
+//           console.log('DONE')
+//           updateChatSome(+uuid, dataSources.value.length - 1, { loading: true })
+//           // console.log(dataSources.value.length,'dataSources')
+//           state.close()
+//         }
+//         return
+//       }
+//       const json_data = JSON.parse(event.data)
+
+//       if (json_data.content == null || json_data.content == 'null')
+//         return
+
+//       currentMsg = currentMsg + json_data.content
+//       const message = ''; const options = {}
+//       updateChat(
+//         +uuid,
+//         dataSources.value.length - 1,
+//         {
+//           dateTime: new Date().toLocaleString(),
+//           text: currentMsg,
+//           inversion: false,
+//           error: false,
+//           loading: true,
+//           conversationOptions: null,
+//           requestOptions: { prompt: message, options: { ...options } },
+//         },
+//       )
+//       scrollToBottomIfAtBottom()
+
+//       // console.log(currentMsg)
+//       // setText(text)
+//     }
+//     // 报错处理
+//     state.onerror = (e: any) => {
+//       console.log('报错啦～～', e.type, ':', e.message)
+//       state.close()
+//     }
+//   }
+//   else {
+//     console.log('你的浏览器不支持SSE')
+//   }
+// }
 
 async function onConversation() {
-  let message = prompt.value
-
+  const message = prompt.value
   if (loading.value)
     return
 
@@ -168,52 +268,58 @@ async function onConversation() {
   scrollToBottom()
 
   try {
-    let lastText = ''
+    // let lastText = ''
     const fetchChatAPIOnce = async () => {
-      await fetchChatAPIProcess<Chat.ConversationResponse>({
-        uuid,
-        prompt: message,
-        options,
+      sendSource({
+        message: [{ content: message, role: 'user' }],
         signal: controller.signal,
-        onDownloadProgress: ({ event }) => {
-          const xhr = event.target
-          const { responseText } = xhr
-          // Always process the final line
-          const lastIndex = responseText.lastIndexOf('\n', responseText.length - 2)
-          let chunk = responseText
-          if (lastIndex !== -1)
-            chunk = responseText.substring(lastIndex)
-          try {
-            const data = JSON.parse(chunk)
-            updateChat(
-              +uuid,
-              dataSources.value.length - 1,
-              {
-                dateTime: new Date().toLocaleString(),
-                text: lastText + (data.text ?? ''),
-                inversion: false,
-                error: false,
-                loading: true,
-                conversationOptions: { conversationId: data.conversationId, parentMessageId: data.id },
-                requestOptions: { prompt: message, options: { ...options } },
-              },
-            )
-
-            if (openLongReply && data.detail.choices[0].finish_reason === 'length') {
-              options.parentMessageId = data.id
-              lastText = data.text
-              message = ''
-              return fetchChatAPIOnce()
-            }
-
-            scrollToBottomIfAtBottom()
-          }
-          catch (error) {
-            //
-          }
-        },
       })
-      updateChatSome(+uuid, dataSources.value.length - 1, { loading: false })
+
+      // await fetchChatAPIProcess<Chat.ConversationResponse>({
+      //   uuid,
+      //   prompt: message,
+      //   options,
+      //   signal: controller.signal,
+      //   onDownloadProgress: ({ event }) => {
+      //     // const xhr = event.target
+      //     // const { responseText } = xhr
+      //     // Always process the final line
+      //     // const lastIndex = responseText.lastIndexOf('\n', responseText.length - 2)
+      //     // let chunk = responseText
+      //     // if (lastIndex !== -1)
+      //     //   chunk = responseText.substring(lastIndex)
+      //     // try {
+      //     //   const data = JSON.parse(chunk)
+      //     //   updateChat(
+      //     //     +uuid,
+      //     //     dataSources.value.length - 1,
+      //     //     {
+      //     //       dateTime: new Date().toLocaleString(),
+      //     //       text: currentMsg,
+      //     //       inversion: false,
+      //     //       error: false,
+      //     //       loading: true,
+      //     //       conversationOptions: { conversationId: data.conversationId, parentMessageId: data.id },
+      //     //       requestOptions: { prompt: message, options: { ...options } },
+      //     //     },
+      //     //   )
+
+      //     //   if (openLongReply && data.detail.choices[0].finish_reason === 'length') {
+      //     //     options.parentMessageId = data.id
+      //     //     lastText = data.text
+      //     //     message = ''
+      //     //     return fetchChatAPIOnce()
+      //     //   }
+
+      //     //   scrollToBottomIfAtBottom()
+      //     // }
+      //     // catch (error) {
+      //     //
+      //     // }
+      //   },
+      // })
+      // console.log(dataSources,'dataSources')
+      // updateChatSome(+uuid, dataSources.value.length - 1, { loading: false })
     }
 
     await fetchChatAPIOnce()
@@ -276,7 +382,7 @@ async function onRegenerate(index: number) {
 
   const { requestOptions } = dataSources.value[index]
 
-  let message = requestOptions?.prompt ?? ''
+  const message = requestOptions?.prompt ?? ''
 
   let options: Chat.ConversationRequest = {}
 
@@ -300,47 +406,47 @@ async function onRegenerate(index: number) {
   )
 
   try {
-    let lastText = ''
+    // const lastText = ''
     const fetchChatAPIOnce = async () => {
       await fetchChatAPIProcess<Chat.ConversationResponse>({
         prompt: message,
         options,
         signal: controller.signal,
-        uuid:uuid,
+        uuid,
         onDownloadProgress: ({ event }) => {
-          const xhr = event.target
-          const { responseText } = xhr
+          // const xhr = event.target
+          // const { responseText } = xhr
           // Always process the final line
-          const lastIndex = responseText.lastIndexOf('\n', responseText.length - 2)
-          let chunk = responseText
-          if (lastIndex !== -1)
-            chunk = responseText.substring(lastIndex)
-          try {
-            const data = JSON.parse(chunk)
-            updateChat(
-              +uuid,
-              index,
-              {
-                dateTime: new Date().toLocaleString(),
-                text: lastText + (data.text ?? ''),
-                inversion: false,
-                error: false,
-                loading: true,
-                conversationOptions: { conversationId: data.conversationId, parentMessageId: data.id },
-                requestOptions: { prompt: message, options: { ...options } },
-              },
-            )
+          // const lastIndex = responseText.lastIndexOf('\n', responseText.length - 2)
+          // let chunk = responseText
+          // if (lastIndex !== -1)
+          // chunk = responseText.substring(lastIndex)
+          // try {
+          //   const data = JSON.parse(chunk)
+          //   updateChat(
+          //     +uuid,
+          //     index,
+          //     {
+          //       dateTime: new Date().toLocaleString(),
+          //       text: lastText + (data.text ?? ''),
+          //       inversion: false,
+          //       error: false,
+          //       loading: true,
+          //       conversationOptions: { conversationId: data.conversationId, parentMessageId: data.id },
+          //       requestOptions: { prompt: message, options: { ...options } },
+          //     },
+          //   )
 
-            if (openLongReply && data.detail.choices[0].finish_reason === 'length') {
-              options.parentMessageId = data.id
-              lastText = data.text
-              message = ''
-              return fetchChatAPIOnce()
-            }
-          }
-          catch (error) {
-            //
-          }
+          //   if (openLongReply && data.detail.choices[0].finish_reason === 'length') {
+          //     options.parentMessageId = data.id
+          //     lastText = data.text
+          //     message = ''
+          //     return fetchChatAPIOnce()
+          //   }
+          // }
+          // catch (error) {
+          //
+          // }
         },
       })
       updateChatSome(+uuid, index, { loading: false })
@@ -522,8 +628,8 @@ onMounted(() => {
   if (inputRef.value && !isMobile.value)
     inputRef.value?.focus()
 
-    // 创建sse
-  // createEventSource();
+  // 创建sse
+  // sendSource();
 })
 
 onUnmounted(() => {
@@ -534,18 +640,14 @@ onUnmounted(() => {
 
 <template>
   <div class="flex flex-col w-full h-full">
-    <div id="test"></div>
     <HeaderComponent
-      v-if="isMobile"
-      :using-context="usingContext"
-      @export="handleExport"
+      v-if="isMobile" :using-context="usingContext" @export="handleExport"
       @toggle-using-context="toggleUsingContext"
     />
     <main class="flex-1 overflow-hidden">
       <div id="scrollRef" ref="scrollRef" class="h-full overflow-hidden overflow-y-auto">
         <div
-          id="image-wrapper"
-          class="w-full max-w-screen-xl m-auto dark:bg-[#101014]"
+          id="image-wrapper" class="w-full max-w-screen-xl m-auto dark:bg-[#101014]"
           :class="[isMobile ? 'p-2' : 'p-4']"
         >
           <template v-if="!dataSources.length">
@@ -557,14 +659,8 @@ onUnmounted(() => {
           <template v-else>
             <div>
               <Message
-                v-for="(item, index) of dataSources"
-                :key="index"
-                :date-time="item.dateTime"
-                :text="item.text"
-                :inversion="item.inversion"
-                :error="item.error"
-                :loading="item.loading"
-                @regenerate="onRegenerate(index)"
+                v-for="(item, index) of dataSources" :key="index" :date-time="item.dateTime" :text="item.text"
+                :inversion="item.inversion" :error="item.error" :loading="item.loading" @regenerate="onRegenerate(index)"
                 @delete="handleDelete(index)"
               />
               <div class="sticky bottom-0 left-0 flex justify-center">
@@ -601,15 +697,9 @@ onUnmounted(() => {
           <NAutoComplete v-model:value="prompt" :options="searchOptions" :render-label="renderOption">
             <template #default="{ handleInput, handleBlur, handleFocus }">
               <NInput
-                ref="inputRef"
-                v-model:value="prompt"
-                type="textarea"
-                :placeholder="placeholder"
-                :autosize="{ minRows: 1, maxRows: isMobile ? 4 : 8 }"
-                @input="handleInput"
-                @focus="handleFocus"
-                @blur="handleBlur"
-                @keypress="handleEnter"
+                ref="inputRef" v-model:value="prompt" type="textarea" :placeholder="placeholder"
+                :autosize="{ minRows: 1, maxRows: isMobile ? 4 : 8 }" @input="handleInput" @focus="handleFocus"
+                @blur="handleBlur" @keypress="handleEnter"
               />
             </template>
           </NAutoComplete>
